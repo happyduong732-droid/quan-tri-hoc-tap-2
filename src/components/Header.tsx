@@ -1,11 +1,12 @@
 import React from 'react';
-import { Calendar, Search, Database, Volume2, VolumeX, Menu, BookMarked } from 'lucide-react';
+import { Calendar, Search, Database, Volume2, VolumeX, Menu, BookMarked, Cloud } from 'lucide-react';
 import { AppData } from '../types';
 
 interface HeaderProps {
   data: AppData;
   onOpenSearch: () => void;
   onOpenDataModal: () => void;
+  onOpenSupabaseModal: () => void;
   onToggleSound: () => void;
   onToggleMobileSidebar: () => void;
   isSidebarOpen: boolean;
@@ -15,6 +16,7 @@ export const Header: React.FC<HeaderProps> = ({
   data,
   onOpenSearch,
   onOpenDataModal,
+  onOpenSupabaseModal,
   onToggleSound,
   onToggleMobileSidebar,
 }) => {
@@ -104,6 +106,19 @@ export const Header: React.FC<HeaderProps> = ({
               title={data.soundEnabled ? 'Âm thanh: Đang Bật (Bấm để tắt)' : 'Âm thanh: Đang Tắt (Bấm để bật)'}
             >
               {data.soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+            </button>
+
+            {/* Supabase Cloud Sync Button */}
+            <button
+              id="header-supabase-btn"
+              type="button"
+              onClick={onOpenSupabaseModal}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100/90 border border-emerald-200/90 shadow-2xs transition-all active:scale-95"
+              title="Đồng bộ cơ sở dữ liệu Supabase"
+            >
+              <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="hidden sm:inline">Supabase</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             </button>
 
             {/* Backup / Restore Data Button */}

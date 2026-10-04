@@ -30,6 +30,8 @@ import { ToastContainer, ToastMessage } from './components/Toast';
 import { ConfirmModal } from './components/ConfirmModal';
 import { DataManagementModal } from './components/DataManagementModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
+import { SupabaseModal } from './components/SupabaseModal';
+import { getSupabaseConfig, pushDataToSupabase } from './services/supabase';
 
 // Views
 import { OverviewView } from './components/OverviewView';
@@ -71,11 +73,23 @@ export default function App() {
 
   // Global Dialogs
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Synchronize state with LocalStorage whenever data changes
   useEffect(() => {
     saveAppData(data);
+
+    // Tự động đồng bộ Supabase nếu giáo viên bật tùy chọn AutoSync
+    const config = getSupabaseConfig();
+    if (config.autoSync && config.url && config.anonKey) {
+      const timer = setTimeout(() => {
+        pushDataToSupabase(data).catch((err) => {
+          console.warn('Auto-sync to Supabase failed silently:', err);
+        });
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
   }, [data]);
 
   // Keyboard shortcut: Ctrl+K or Cmd+K to trigger Quick Search
@@ -636,6 +650,7 @@ export default function App() {
         data={data}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenDataModal={() => setIsDataModalOpen(true)}
+        onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onToggleSound={handleToggleSound}
         onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
         isSidebarOpen={isMobileSidebarOpen}
@@ -692,6 +707,21 @@ export default function App() {
         }}
         onResetSample={handleResetData}
         onClearData={handleClearData}
+        onNotify={notify}
+        onOpenSupabase={() => {
+          setIsDataModalOpen(false);
+          setIsSupabaseModalOpen(true);
+        }}
+      />
+
+      {/* Supabase Cloud Database Sync Modal */}
+      <SupabaseModal
+        isOpen={isSupabaseModalOpen}
+        onClose={() => setIsSupabaseModalOpen(false)}
+        data={data}
+        onUpdateData={(newData) => {
+          setData(newData);
+        }}
         onNotify={notify}
       />
 

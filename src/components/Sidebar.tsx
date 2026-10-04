@@ -9,9 +9,11 @@ import {
   TrendingUp,
   MessageSquareQuote,
   BarChart3,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 import { NavTab, AppData } from '../types';
+import { isSupabaseConfigured } from '../services/supabase';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -19,6 +21,7 @@ interface SidebarProps {
   data: AppData;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  onOpenSupabaseModal?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   data,
   isOpenMobile,
   onCloseMobile,
+  onOpenSupabaseModal,
 }) => {
   // Quick dynamic counts for badges
   const pendingTasksCount = data.tasks.filter((t) => t.status !== 'Đã hoàn thành').length;
@@ -137,6 +141,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </div>
+
+        {/* Supabase Cloud Connection Mini Card */}
+        {onOpenSupabaseModal && (
+          <div className="px-3 pb-2">
+            <button
+              type="button"
+              onClick={() => {
+                onOpenSupabaseModal();
+                onCloseMobile();
+              }}
+              className="w-full p-2.5 rounded-xl border border-emerald-200/90 bg-emerald-50/60 hover:bg-emerald-100/70 text-left transition-all group flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                  <Zap className="w-4 h-4 fill-white" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-emerald-950 truncate">Cơ sở dữ liệu Supabase</p>
+                  <p className="text-[10px] text-emerald-700 truncate">
+                    {isSupabaseConfigured() ? '● Đã kết nối Cloud' : '○ Thiết lập & Đồng bộ'}
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-md border border-emerald-200 shadow-2xs">
+                Mở
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Bottom Profile Info Box */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/70">
