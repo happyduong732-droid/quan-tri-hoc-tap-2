@@ -363,7 +363,115 @@ export async function pullDataFromSupabase(): Promise<{
     throw new Error('Chưa khởi tạo Supabase Client.');
   }
 
-  // 1. Thử lấy từ bảng app_backup trước
+  // 1. ƯU TIÊN LẤY TỪ CÁC BẢNG QUAN HỆ CHÍNH (classes, students, lessons, tasks, grades, comments)
+  try {
+    const [classesRes, studentsRes, lessonsRes, tasksRes, gradesRes, commentsRes, logsRes] = await Promise.all([
+      client.from('classes').select('*'),
+      client.from('students').select('*'),
+      client.from('lessons').select('*'),
+      client.from('tasks').select('*'),
+      client.from('grades').select('*'),
+      client.from('comments').select('*'),
+      client.from('activity_logs').select('*'),
+    ]);
+
+    // Nếu bảng classes tồn tại và không bị lỗi
+    if (!classesRes.error && Array.isArray(classesRes.data)) {
+      // Map DB fields về interface AppData
+      const classes: ClassItem[] = (classesRes.data || []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        gradeLevel: row.grade_level,
+        room: row.room,
+        academicYear: row.academic_year,
+        note: row.note,
+      }));
+
+      const students: Student[] = (studentsRes.data || []).map((row: any) => ({
+        id: row.id,
+        studentCode: row.student_code,
+        fullName: row.full_name,
+        classId: row.class_id,
+        gender: row.gender,
+        status: row.status,
+        note: row.note,
+        needAttention: !!row.need_attention,
+      }));
+
+      const lessons: Lesson[] = (lessonsRes.data || []).map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        classId: row.class_id,
+        topic: row.topic,
+        objectives: row.objectives,
+        summary: row.summary,
+        teachDate: row.teach_date,
+        status: row.status,
+      }));
+
+      const tasks: LearningTask[] = (tasksRes.data || []).map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        classId: row.class_id,
+        lessonId: row.lesson_id,
+        description: row.description,
+        dueDate: row.due_date,
+        priority: row.priority,
+        status: row.status,
+        completedStudentIds: row.completed_student_ids || [],
+      }));
+
+      const grades: GradeEntry[] = (gradesRes.data || []).map((row: any) => ({
+        id: row.id,
+        studentId: row.student_id,
+        classId: row.class_id,
+        activityTitle: row.activity_title,
+        lessonId: row.lesson_id,
+        score: Number(row.score),
+        date: row.date,
+        note: row.note,
+      }));
+
+      const comments: StudentComment[] = (commentsRes.data || []).map((row: any) => ({
+        id: row.id,
+        studentId: row.student_id,
+        classId: row.class_id,
+        date: row.date,
+        content: row.content,
+        skillCategory: row.skill_category,
+        note: row.note,
+      }));
+
+      const activityLogs: ActivityLog[] = (logsRes.data || []).map((row: any) => ({
+        id: row.id,
+        timestamp: row.timestamp,
+        type: row.type,
+        action: row.action,
+      }));
+
+      const loadedData: AppData = {
+        classes,
+        students,
+        lessons,
+        tasks,
+        grades,
+        comments,
+        activityLogs,
+        soundEnabled: false,
+      };
+
+      return {
+        success: true,
+        data: loadedData,
+        source: 'Các bảng dữ liệu Supabase (classes, students...)',
+        message: `Đã nạp thành công ${classes.length} lớp học và ${students.length} học sinh từ cơ sở dữ liệu Supabase.`,
+      };
+    }
+  } catch (err: unknown) {
+    // Nếu bảng quan hệ chưa có thì thử bảng app_backup
+  }
+
+  // 2. Dự phòng: Thử lấy từ bảng app_backup
   try {
     const { data: backupRow, error: backupErr } = await client
       .from('app_backup')
@@ -377,127 +485,14 @@ export async function pullDataFromSupabase(): Promise<{
         success: true,
         data: parsed,
         source: 'app_backup (Sao lưu đám mây)',
-        message: 'Đã tải thành công bản sao lưu mới nhất từ Supabase Cloud.',
+        message: 'Đã tải thành công bản sao lưu từ Supabase Cloud.',
       };
     }
   } catch {
-    // Tiếp tục thử lấy từ các bảng quan hệ
+    // Không có dữ liệu
   }
 
-  // 2. Thử truy vấn các bảng thành phần
-  try {
-    const [classesRes, studentsRes, lessonsRes, tasksRes, gradesRes, commentsRes, logsRes] = await Promise.all([
-      client.from('classes').select('*'),
-      client.from('students').select('*'),
-      client.from('lessons').select('*'),
-      client.from('tasks').select('*'),
-      client.from('grades').select('*'),
-      client.from('comments').select('*'),
-      client.from('activity_logs').select('*'),
-    ]);
-
-    const hasAny =
-      (classesRes.data && classesRes.data.length > 0) ||
-      (studentsRes.data && studentsRes.data.length > 0) ||
-      (lessonsRes.data && lessonsRes.data.length > 0);
-
-    if (!hasAny) {
-      throw new Error('Không tìm thấy dữ liệu nào trên Supabase. Thầy có thể nhấn "Đẩy dữ liệu hiện tại lên Supabase" trước.');
-    }
-
-    // Map DB fields về interface AppData
-    const classes: ClassItem[] = (classesRes.data || []).map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      gradeLevel: row.grade_level,
-      room: row.room,
-      academicYear: row.academic_year,
-      note: row.note,
-    }));
-
-    const students: Student[] = (studentsRes.data || []).map((row: any) => ({
-      id: row.id,
-      studentCode: row.student_code,
-      fullName: row.full_name,
-      classId: row.class_id,
-      gender: row.gender,
-      status: row.status,
-      note: row.note,
-      needAttention: !!row.need_attention,
-    }));
-
-    const lessons: Lesson[] = (lessonsRes.data || []).map((row: any) => ({
-      id: row.id,
-      title: row.title,
-      classId: row.class_id,
-      topic: row.topic,
-      objectives: row.objectives,
-      summary: row.summary,
-      teachDate: row.teach_date,
-      status: row.status,
-    }));
-
-    const tasks: LearningTask[] = (tasksRes.data || []).map((row: any) => ({
-      id: row.id,
-      title: row.title,
-      classId: row.class_id,
-      lessonId: row.lesson_id,
-      description: row.description,
-      dueDate: row.due_date,
-      priority: row.priority,
-      status: row.status,
-      completedStudentIds: row.completed_student_ids || [],
-    }));
-
-    const grades: GradeEntry[] = (gradesRes.data || []).map((row: any) => ({
-      id: row.id,
-      studentId: row.student_id,
-      classId: row.class_id,
-      activityTitle: row.activity_title,
-      lessonId: row.lesson_id,
-      score: Number(row.score),
-      date: row.date,
-      note: row.note,
-    }));
-
-    const comments: StudentComment[] = (commentsRes.data || []).map((row: any) => ({
-      id: row.id,
-      studentId: row.student_id,
-      classId: row.class_id,
-      date: row.date,
-      content: row.content,
-      skillCategory: row.skill_category,
-      note: row.note,
-    }));
-
-    const activityLogs: ActivityLog[] = (logsRes.data || []).map((row: any) => ({
-      id: row.id,
-      timestamp: row.timestamp,
-      type: row.type,
-      action: row.action,
-    }));
-
-    const loadedData: AppData = {
-      classes,
-      students,
-      lessons,
-      tasks,
-      grades,
-      comments,
-      activityLogs,
-      soundEnabled: false,
-    };
-
-    return {
-      success: true,
-      data: loadedData,
-      source: 'Các bảng Supabase (classes, students, lessons...)',
-      message: `Đã nạp thành công ${students.length} học sinh và ${lessons.length} bài học từ cơ sở dữ liệu Supabase.`,
-    };
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Lỗi khi lấy dữ liệu: ${errorMsg}`);
-  }
+  throw new Error('Chưa tìm thấy dữ liệu trên Supabase.');
 }
 
 /**
@@ -512,10 +507,21 @@ export async function deleteFromSupabase(
   if (!client) return;
 
   try {
-    // 1. Xóa trong bảng quan hệ
-    const { error } = await client.from(table).delete().eq('id', id);
-    if (error) {
-      console.warn(`Lỗi khi xóa từ bảng ${table}:`, error.message);
+    // 1. Xóa trong bảng quan hệ (Nếu xóa lớp thì xóa kèm các dữ liệu phụ thuộc)
+    if (table === 'classes') {
+      await Promise.allSettled([
+        client.from('classes').delete().eq('id', id),
+        client.from('students').delete().eq('class_id', id),
+        client.from('lessons').delete().eq('class_id', id),
+        client.from('tasks').delete().eq('class_id', id),
+        client.from('grades').delete().eq('class_id', id),
+        client.from('comments').delete().eq('class_id', id),
+      ]);
+    } else {
+      const { error } = await client.from(table).delete().eq('id', id);
+      if (error) {
+        console.warn(`Lỗi khi xóa từ bảng ${table}:`, error.message);
+      }
     }
 
     // 2. Cập nhật bản sao lưu toàn diện app_backup nếu có

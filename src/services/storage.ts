@@ -28,13 +28,13 @@ export function loadAppData(): AppData {
     }
     const parsed = JSON.parse(raw) as Partial<AppData>;
     return {
-      classes: parsed.classes || initialAppData.classes,
-      students: parsed.students || initialAppData.students,
-      lessons: parsed.lessons || initialAppData.lessons,
-      tasks: parsed.tasks || initialAppData.tasks,
-      grades: parsed.grades || initialAppData.grades,
-      comments: parsed.comments || initialAppData.comments,
-      activityLogs: parsed.activityLogs || initialAppData.activityLogs,
+      classes: Array.isArray(parsed.classes) ? parsed.classes : initialAppData.classes,
+      students: Array.isArray(parsed.students) ? parsed.students : initialAppData.students,
+      lessons: Array.isArray(parsed.lessons) ? parsed.lessons : initialAppData.lessons,
+      tasks: Array.isArray(parsed.tasks) ? parsed.tasks : initialAppData.tasks,
+      grades: Array.isArray(parsed.grades) ? parsed.grades : initialAppData.grades,
+      comments: Array.isArray(parsed.comments) ? parsed.comments : initialAppData.comments,
+      activityLogs: Array.isArray(parsed.activityLogs) ? parsed.activityLogs : initialAppData.activityLogs,
       soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : false,
     };
   } catch (error) {
