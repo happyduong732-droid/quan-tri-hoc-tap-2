@@ -22,7 +22,8 @@ import {
   testSupabaseConnection,
   pushDataToSupabase,
   pullDataFromSupabase,
-  SUPABASE_SQL_SETUP_SCRIPT
+  SUPABASE_SQL_SETUP_SCRIPT,
+  sanitizeSupabaseUrl
 } from '../services/supabase';
 
 interface SupabaseModalProps {
@@ -69,8 +70,9 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       const current = getSupabaseConfig();
-      setConfig(current);
-      setUrlInput(current.url);
+      const cleanUrl = sanitizeSupabaseUrl(current.url);
+      setConfig({ ...current, url: cleanUrl });
+      setUrlInput(cleanUrl);
       setAnonKeyInput(current.anonKey);
       setAutoSyncInput(current.autoSync);
 
@@ -117,8 +119,10 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
       onNotify('warning', 'Thiếu thông tin', 'Vui lòng điền đủ Supabase Project URL và Anon Key.');
       return;
     }
-    saveSupabaseConfig(urlInput.trim(), anonKeyInput.trim(), autoSyncInput);
-    setConfig({ url: urlInput.trim(), anonKey: anonKeyInput.trim(), autoSync: autoSyncInput });
+    const cleanUrl = sanitizeSupabaseUrl(urlInput);
+    saveSupabaseConfig(cleanUrl, anonKeyInput.trim(), autoSyncInput);
+    setConfig({ url: cleanUrl, anonKey: anonKeyInput.trim(), autoSync: autoSyncInput });
+    setUrlInput(cleanUrl);
     onNotify('success', 'Đã lưu cấu hình Supabase', 'Đã cập nhật URL và khóa truy cập.');
     handleTestConnection();
   };
