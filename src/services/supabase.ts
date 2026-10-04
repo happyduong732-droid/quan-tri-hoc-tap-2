@@ -46,6 +46,11 @@ export function saveSupabaseConfig(url: string, anonKey: string, autoSync: boole
   }
 }
 
+export function isSupabaseConfigured(): boolean {
+  const config = getSupabaseConfig();
+  return Boolean(config.url && config.anonKey);
+}
+
 let cachedClient: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
