@@ -1,0 +1,8 @@
+{
+  "name": "Remix Trợ Lý Quản Trị Học Tập – Thầy Dương Thành Tín",
+  "description": "Hệ thống quản trị học tập môn Ngữ văn THCS dành cho Thầy Dương Thành Tín - THCS Phan Bội Châu",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
