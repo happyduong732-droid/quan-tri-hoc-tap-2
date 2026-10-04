@@ -31,7 +31,18 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { DataManagementModal } from './components/DataManagementModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { SupabaseModal } from './components/SupabaseModal';
-import { getSupabaseConfig, pushDataToSupabase } from './services/supabase';
+import {
+  getSupabaseConfig,
+  pushDataToSupabase,
+  pullDataFromSupabase,
+  deleteFromSupabase,
+  upsertLessonToSupabase,
+  upsertStudentToSupabase,
+  upsertClassToSupabase,
+  upsertTaskToSupabase,
+  upsertGradeToSupabase,
+  upsertCommentToSupabase,
+} from './services/supabase';
 
 // Views
 import { OverviewView } from './components/OverviewView';
@@ -76,6 +87,28 @@ export default function App() {
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
+  // Khi tải ứng dụng: tự động đồng bộ dữ liệu mới nhất từ Supabase nếu có
+  useEffect(() => {
+    let isMounted = true;
+    const initDataFromCloud = async () => {
+      try {
+        const config = getSupabaseConfig();
+        if (!config.url || !config.anonKey) return;
+        const res = await pullDataFromSupabase();
+        if (isMounted && res.success && res.data) {
+          setData(res.data);
+          saveAppData(res.data);
+        }
+      } catch {
+        // Dùng localStorage bình thường nếu chưa tạo bảng hoặc offline
+      }
+    };
+    initDataFromCloud();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Synchronize state with LocalStorage whenever data changes
   useEffect(() => {
     saveAppData(data);
@@ -87,7 +120,7 @@ export default function App() {
         pushDataToSupabase(data).catch((err) => {
           console.warn('Auto-sync to Supabase failed silently:', err);
         });
-      }, 3000);
+      }, 2000);
       return () => clearTimeout(timer);
     }
   }, [data]);
@@ -182,7 +215,10 @@ export default function App() {
     };
     setData((prev) => {
       const withClass = { ...prev, classes: [...prev.classes, newClass] };
-      return recordActivity(withClass, 'class', `Đã thêm lớp ${newClass.name}`);
+      const recorded = recordActivity(withClass, 'class', `Đã thêm lớp ${newClass.name}`);
+      saveAppData(recorded);
+      upsertClassToSupabase(newClass, recorded);
+      return recorded;
     });
     notify('success', 'Thêm lớp học thành công', `Đã tạo lớp ${clsData.name} trong hệ thống.`);
   };
@@ -193,7 +229,10 @@ export default function App() {
         ...prev,
         classes: prev.classes.map((c) => (c.id === updatedClass.id ? updatedClass : c)),
       };
-      return recordActivity(withClass, 'class', `Đã cập nhật lớp ${updatedClass.name}`);
+      const recorded = recordActivity(withClass, 'class', `Đã cập nhật lớp ${updatedClass.name}`);
+      saveAppData(recorded);
+      upsertClassToSupabase(updatedClass, recorded);
+      return recorded;
     });
     notify('success', 'Cập nhật lớp thành công', `Thông tin lớp ${updatedClass.name} đã được lưu.`);
   };
@@ -216,7 +255,10 @@ export default function App() {
             grades: prev.grades.filter((g) => g.classId !== classId),
             comments: prev.comments.filter((cm) => cm.classId !== classId),
           };
-          return recordActivity(updated, 'class', `Đã xóa lớp ${cls?.name || classId}`);
+          const recorded = recordActivity(updated, 'class', `Đã xóa lớp ${cls?.name || classId}`);
+          saveAppData(recorded);
+          deleteFromSupabase('classes', classId, recorded);
+          return recorded;
         });
         notify('info', 'Đã xóa lớp học', `Lớp ${cls?.name || ''} đã được loại bỏ.`);
       },
@@ -233,11 +275,14 @@ export default function App() {
     };
     setData((prev) => {
       const withStudent = { ...prev, students: [...prev.students, newStudent] };
-      return recordActivity(
+      const recorded = recordActivity(
         withStudent,
         'student',
         `Đã thêm học sinh ${newStudent.fullName} (${newStudent.studentCode})`
       );
+      saveAppData(recorded);
+      upsertStudentToSupabase(newStudent, recorded);
+      return recorded;
     });
     notify(
       'success',
@@ -255,11 +300,15 @@ export default function App() {
     }));
     setData((prev) => {
       const withStudents = { ...prev, students: [...prev.students, ...newStudents] };
-      return recordActivity(
+      const recorded = recordActivity(
         withStudents,
         'student',
         `Đã nhập ${newStudents.length} học sinh từ file Excel`
       );
+      saveAppData(recorded);
+      // Đồng bộ toàn bộ danh sách lên Supabase
+      pushDataToSupabase(recorded).catch(() => {});
+      return recorded;
     });
     notify(
       'success',
@@ -274,11 +323,14 @@ export default function App() {
         ...prev,
         students: prev.students.map((s) => (s.id === updatedStudent.id ? updatedStudent : s)),
       };
-      return recordActivity(
+      const recorded = recordActivity(
         withStudent,
         'student',
         `Đã cập nhật học sinh ${updatedStudent.fullName}`
       );
+      saveAppData(recorded);
+      upsertStudentToSupabase(updatedStudent, recorded);
+      return recorded;
     });
     notify('success', 'Đã cập nhật học sinh', `Thông tin em ${updatedStudent.fullName} đã lưu.`);
   };
@@ -298,11 +350,14 @@ export default function App() {
             grades: prev.grades.filter((g) => g.studentId !== studentId),
             comments: prev.comments.filter((c) => c.studentId !== studentId),
           };
-          return recordActivity(
+          const recorded = recordActivity(
             updated,
             'student',
             `Đã xóa học sinh ${st?.fullName || studentId}`
           );
+          saveAppData(recorded);
+          deleteFromSupabase('students', studentId, recorded);
+          return recorded;
         });
         notify('info', 'Đã xóa học sinh', `Học sinh ${st?.fullName || ''} đã được xóa.`);
       },
@@ -319,7 +374,10 @@ export default function App() {
     };
     setData((prev) => {
       const withLesson = { ...prev, lessons: [...prev.lessons, newLesson] };
-      return recordActivity(withLesson, 'lesson', `Đã tạo bài học ${newLesson.title}`);
+      const recorded = recordActivity(withLesson, 'lesson', `Đã tạo bài học ${newLesson.title}`);
+      saveAppData(recorded);
+      upsertLessonToSupabase(newLesson, recorded);
+      return recorded;
     });
     notify('success', 'Tạo bài học thành công', `Bài dạy "${lessonData.title}" đã được lưu.`);
   };
@@ -330,7 +388,10 @@ export default function App() {
         ...prev,
         lessons: prev.lessons.map((l) => (l.id === updatedLesson.id ? updatedLesson : l)),
       };
-      return recordActivity(withLesson, 'lesson', `Đã cập nhật bài học ${updatedLesson.title}`);
+      const recorded = recordActivity(withLesson, 'lesson', `Đã cập nhật bài học ${updatedLesson.title}`);
+      saveAppData(recorded);
+      upsertLessonToSupabase(updatedLesson, recorded);
+      return recorded;
     });
     notify('success', 'Đã cập nhật bài học', `Bài "${updatedLesson.title}" đã lưu thay đổi.`);
   };
@@ -348,7 +409,11 @@ export default function App() {
             ...prev,
             lessons: prev.lessons.filter((item) => item.id !== lessonId),
           };
-          return recordActivity(updated, 'lesson', `Đã xóa bài học ${l?.title || lessonId}`);
+          const recorded = recordActivity(updated, 'lesson', `Đã xóa bài học ${l?.title || lessonId}`);
+          saveAppData(recorded);
+          // Xóa ngay lập tức khỏi bảng lessons trên Supabase và cập nhật app_backup
+          deleteFromSupabase('lessons', lessonId, recorded);
+          return recorded;
         });
         notify('info', 'Đã xóa bài học', `Bài dạy "${l?.title || ''}" đã được xóa.`);
       },
@@ -365,7 +430,10 @@ export default function App() {
     };
     setData((prev) => {
       const withTask = { ...prev, tasks: [...prev.tasks, newTask] };
-      return recordActivity(withTask, 'task', `Đã giao nhiệm vụ: ${newTask.title}`);
+      const recorded = recordActivity(withTask, 'task', `Đã giao nhiệm vụ: ${newTask.title}`);
+      saveAppData(recorded);
+      upsertTaskToSupabase(newTask, recorded);
+      return recorded;
     });
     notify('success', 'Đã giao nhiệm vụ', `Nhiệm vụ "${taskData.title}" đã được tạo.`);
   };
@@ -376,7 +444,10 @@ export default function App() {
         ...prev,
         tasks: prev.tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t)),
       };
-      return recordActivity(withTask, 'task', `Đã cập nhật nhiệm vụ: ${updatedTask.title}`);
+      const recorded = recordActivity(withTask, 'task', `Đã cập nhật nhiệm vụ: ${updatedTask.title}`);
+      saveAppData(recorded);
+      upsertTaskToSupabase(updatedTask, recorded);
+      return recorded;
     });
     notify('success', 'Đã cập nhật nhiệm vụ', `Nhiệm vụ "${updatedTask.title}" đã được lưu.`);
   };
@@ -394,7 +465,10 @@ export default function App() {
             ...prev,
             tasks: prev.tasks.filter((task) => task.id !== taskId),
           };
-          return recordActivity(updated, 'task', `Đã xóa nhiệm vụ: ${t?.title || taskId}`);
+          const recorded = recordActivity(updated, 'task', `Đã xóa nhiệm vụ: ${t?.title || taskId}`);
+          saveAppData(recorded);
+          deleteFromSupabase('tasks', taskId, recorded);
+          return recorded;
         });
         notify('info', 'Đã xóa nhiệm vụ', `Nhiệm vụ "${t?.title || ''}" đã xóa.`);
       },
@@ -409,9 +483,13 @@ export default function App() {
         const newCompleted = exists
           ? t.completedStudentIds.filter((id) => id !== studentId)
           : [...t.completedStudentIds, studentId];
-        return { ...t, completedStudentIds: newCompleted };
+        const changedTask = { ...t, completedStudentIds: newCompleted };
+        upsertTaskToSupabase(changedTask);
+        return changedTask;
       });
-      return { ...prev, tasks: updatedTasks };
+      const recorded = { ...prev, tasks: updatedTasks };
+      saveAppData(recorded);
+      return recorded;
     });
   };
 
@@ -426,11 +504,14 @@ export default function App() {
     setData((prev) => {
       const withGrade = { ...prev, grades: [...prev.grades, newGrade] };
       const st = prev.students.find((s) => s.id === gradeData.studentId);
-      return recordActivity(
+      const recorded = recordActivity(
         withGrade,
         'grade',
         `Đã nhập điểm ${gradeData.score} cho em ${st?.fullName || 'học sinh'}`
       );
+      saveAppData(recorded);
+      upsertGradeToSupabase(newGrade, recorded);
+      return recorded;
     });
     notify('success', 'Đã lưu điểm số', `Điểm ${gradeData.score} đã được ghi nhận.`);
   };
@@ -441,7 +522,10 @@ export default function App() {
         ...prev,
         grades: prev.grades.map((g) => (g.id === updatedGrade.id ? updatedGrade : g)),
       };
-      return recordActivity(withGrade, 'grade', `Đã cập nhật điểm số ${updatedGrade.score}`);
+      const recorded = recordActivity(withGrade, 'grade', `Đã cập nhật điểm số ${updatedGrade.score}`);
+      saveAppData(recorded);
+      upsertGradeToSupabase(updatedGrade, recorded);
+      return recorded;
     });
     notify('success', 'Cập nhật điểm thành công', `Điểm mới ${updatedGrade.score} đã được lưu.`);
   };
@@ -458,7 +542,10 @@ export default function App() {
             ...prev,
             grades: prev.grades.filter((g) => g.id !== gradeId),
           };
-          return recordActivity(updated, 'grade', 'Đã xóa một kết quả kiểm tra');
+          const recorded = recordActivity(updated, 'grade', 'Đã xóa một kết quả kiểm tra');
+          saveAppData(recorded);
+          deleteFromSupabase('grades', gradeId, recorded);
+          return recorded;
         });
         notify('info', 'Đã xóa điểm', 'Cột điểm đã được loại bỏ.');
       },
@@ -476,11 +563,14 @@ export default function App() {
     setData((prev) => {
       const withComment = { ...prev, comments: [...prev.comments, newComment] };
       const st = prev.students.find((s) => s.id === commentData.studentId);
-      return recordActivity(
+      const recorded = recordActivity(
         withComment,
         'comment',
         `Đã ghi nhận xét cho em ${st?.fullName || 'học sinh'} (${commentData.skillCategory})`
       );
+      saveAppData(recorded);
+      upsertCommentToSupabase(newComment, recorded);
+      return recorded;
     });
     notify('success', 'Đã lưu nhận xét', 'Lời nhận xét đánh giá thường xuyên đã được lưu.');
   };
@@ -491,7 +581,10 @@ export default function App() {
         ...prev,
         comments: prev.comments.map((c) => (c.id === updatedComment.id ? updatedComment : c)),
       };
-      return recordActivity(withComment, 'comment', 'Đã cập nhật nội dung nhận xét');
+      const recorded = recordActivity(withComment, 'comment', 'Đã cập nhật nội dung nhận xét');
+      saveAppData(recorded);
+      upsertCommentToSupabase(updatedComment, recorded);
+      return recorded;
     });
     notify('success', 'Đã cập nhật nhận xét', 'Lời nhận xét đã được chỉnh sửa.');
   };
@@ -508,7 +601,10 @@ export default function App() {
             ...prev,
             comments: prev.comments.filter((c) => c.id !== commentId),
           };
-          return recordActivity(updated, 'comment', 'Đã xóa một nhận xét học sinh');
+          const recorded = recordActivity(updated, 'comment', 'Đã xóa một nhận xét học sinh');
+          saveAppData(recorded);
+          deleteFromSupabase('comments', commentId, recorded);
+          return recorded;
         });
         notify('info', 'Đã xóa nhận xét', 'Nhận xét đã được loại bỏ.');
       },
@@ -528,6 +624,7 @@ export default function App() {
       onConfirm: () => {
         const restored = resetAppData();
         setData(restored);
+        pushDataToSupabase(restored).catch(() => {});
         notify(
           'success',
           'Khôi phục thành công',
@@ -547,6 +644,7 @@ export default function App() {
       onConfirm: () => {
         const cleared = clearAppData();
         setData(cleared);
+        pushDataToSupabase(cleared).catch(() => {});
         notify('warning', 'Đã xóa dữ liệu', 'Toàn bộ dữ liệu trên trình duyệt đã được đặt lại trống.');
       },
     });

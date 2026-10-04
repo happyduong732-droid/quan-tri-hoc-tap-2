@@ -19,7 +19,7 @@ export function getSupabaseConfig(): { url: string; anonKey: string; autoSync: b
         return {
           url: parsed.url,
           anonKey: parsed.anonKey,
-          autoSync: parsed.autoSync ?? false,
+          autoSync: parsed.autoSync ?? true,
         };
       }
     }
@@ -30,11 +30,11 @@ export function getSupabaseConfig(): { url: string; anonKey: string; autoSync: b
   return {
     url: (import.meta.env.VITE_SUPABASE_URL as string) || 'https://hgeiudwywxajjhddmcsu.supabase.co',
     anonKey: (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 'sb_publishable_H0EsTtg1e3HiNUgkghIWng_bvjOGPm0',
-    autoSync: false,
+    autoSync: true,
   };
 }
 
-export function saveSupabaseConfig(url: string, anonKey: string, autoSync: boolean = false): void {
+export function saveSupabaseConfig(url: string, anonKey: string, autoSync: boolean = true): void {
   try {
     localStorage.setItem(
       CONFIG_KEY,
@@ -199,6 +199,76 @@ export async function pushDataToSupabase(data: AppData): Promise<{
     }));
     const { error } = await client.from('lessons').upsert(lessonRows, { onConflict: 'id' });
     if (!error) updatedTables.push('lessons');
+  }
+
+  // Dọn dẹp các bài học đã xóa trên giao diện nhưng vẫn còn trên Supabase
+  try {
+    const { data: remoteLessons } = await client.from('lessons').select('id');
+    if (remoteLessons && remoteLessons.length > 0) {
+      const localLessonIds = new Set(data.lessons.map((l) => l.id));
+      const toDelete = remoteLessons.filter((r: { id: string }) => !localLessonIds.has(r.id)).map((r: { id: string }) => r.id);
+      if (toDelete.length > 0) {
+        await client.from('lessons').delete().in('id', toDelete);
+      }
+    }
+  } catch (cleanErr) {
+    console.warn('Lỗi khi dọn dẹp bài học đã xóa trên Supabase:', cleanErr);
+  }
+
+  // Dọn dẹp học sinh đã xóa
+  try {
+    const { data: remoteStudents } = await client.from('students').select('id');
+    if (remoteStudents && remoteStudents.length > 0) {
+      const localStudentIds = new Set(data.students.map((s) => s.id));
+      const toDelete = remoteStudents.filter((r: { id: string }) => !localStudentIds.has(r.id)).map((r: { id: string }) => r.id);
+      if (toDelete.length > 0) {
+        await client.from('students').delete().in('id', toDelete);
+      }
+    }
+  } catch (cleanErr) {
+    console.warn('Lỗi khi dọn dẹp học sinh đã xóa trên Supabase:', cleanErr);
+  }
+
+  // Dọn dẹp nhiệm vụ đã xóa
+  try {
+    const { data: remoteTasks } = await client.from('tasks').select('id');
+    if (remoteTasks && remoteTasks.length > 0) {
+      const localTaskIds = new Set(data.tasks.map((t) => t.id));
+      const toDelete = remoteTasks.filter((r: { id: string }) => !localTaskIds.has(r.id)).map((r: { id: string }) => r.id);
+      if (toDelete.length > 0) {
+        await client.from('tasks').delete().in('id', toDelete);
+      }
+    }
+  } catch (cleanErr) {
+    console.warn('Lỗi khi dọn dẹp nhiệm vụ đã xóa trên Supabase:', cleanErr);
+  }
+
+  // Dọn dẹp điểm số đã xóa
+  try {
+    const { data: remoteGrades } = await client.from('grades').select('id');
+    if (remoteGrades && remoteGrades.length > 0) {
+      const localGradeIds = new Set(data.grades.map((g) => g.id));
+      const toDelete = remoteGrades.filter((r: { id: string }) => !localGradeIds.has(r.id)).map((r: { id: string }) => r.id);
+      if (toDelete.length > 0) {
+        await client.from('grades').delete().in('id', toDelete);
+      }
+    }
+  } catch (cleanErr) {
+    console.warn('Lỗi khi dọn dẹp điểm đã xóa trên Supabase:', cleanErr);
+  }
+
+  // Dọn dẹp nhận xét đã xóa
+  try {
+    const { data: remoteComments } = await client.from('comments').select('id');
+    if (remoteComments && remoteComments.length > 0) {
+      const localCommentIds = new Set(data.comments.map((c) => c.id));
+      const toDelete = remoteComments.filter((r: { id: string }) => !localCommentIds.has(r.id)).map((r: { id: string }) => r.id);
+      if (toDelete.length > 0) {
+        await client.from('comments').delete().in('id', toDelete);
+      }
+    }
+  } catch (cleanErr) {
+    console.warn('Lỗi khi dọn dẹp nhận xét đã xóa trên Supabase:', cleanErr);
   }
 
   // Nhiệm vụ
@@ -422,6 +492,260 @@ export async function pullDataFromSupabase(): Promise<{
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     throw new Error(`Lỗi khi lấy dữ liệu: ${errorMsg}`);
+  }
+}
+
+/**
+ * Xóa một bản ghi trực tiếp trên Supabase và cập nhật bản sao lưu
+ */
+export async function deleteFromSupabase(
+  table: 'lessons' | 'students' | 'classes' | 'tasks' | 'grades' | 'comments',
+  id: string,
+  updatedData?: AppData
+): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    // 1. Xóa trong bảng quan hệ
+    const { error } = await client.from(table).delete().eq('id', id);
+    if (error) {
+      console.warn(`Lỗi khi xóa từ bảng ${table}:`, error.message);
+    }
+
+    // 2. Cập nhật bản sao lưu toàn diện app_backup nếu có
+    if (updatedData) {
+      await client.from('app_backup').upsert(
+        {
+          id: 'main_school_data',
+          data: updatedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+  } catch (err) {
+    console.error(`Lỗi khi gọi deleteFromSupabase (${table}):`, err);
+  }
+}
+
+/**
+ * Thêm hoặc Cập nhật Bài học trên Supabase
+ */
+export async function upsertLessonToSupabase(lesson: Lesson, updatedData?: AppData): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    await client.from('lessons').upsert(
+      {
+        id: lesson.id,
+        title: lesson.title,
+        class_id: lesson.classId,
+        topic: lesson.topic,
+        objectives: lesson.objectives,
+        summary: lesson.summary,
+        teach_date: lesson.teachDate,
+        status: lesson.status,
+      },
+      { onConflict: 'id' }
+    );
+
+    if (updatedData) {
+      await client.from('app_backup').upsert(
+        {
+          id: 'main_school_data',
+          data: updatedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+  } catch (err) {
+    console.error('Lỗi khi upsert bài học lên Supabase:', err);
+  }
+}
+
+/**
+ * Thêm hoặc Cập nhật Học sinh trên Supabase
+ */
+export async function upsertStudentToSupabase(student: Student, updatedData?: AppData): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    await client.from('students').upsert(
+      {
+        id: student.id,
+        student_code: student.studentCode,
+        full_name: student.fullName,
+        class_id: student.classId,
+        gender: student.gender,
+        status: student.status,
+        note: student.note || '',
+        need_attention: !!student.needAttention,
+      },
+      { onConflict: 'id' }
+    );
+
+    if (updatedData) {
+      await client.from('app_backup').upsert(
+        {
+          id: 'main_school_data',
+          data: updatedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+  } catch (err) {
+    console.error('Lỗi khi upsert học sinh lên Supabase:', err);
+  }
+}
+
+/**
+ * Thêm hoặc Cập nhật Lớp học trên Supabase
+ */
+export async function upsertClassToSupabase(cls: ClassItem, updatedData?: AppData): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    await client.from('classes').upsert(
+      {
+        id: cls.id,
+        name: cls.name,
+        grade_level: cls.gradeLevel,
+        room: cls.room || '',
+        academic_year: cls.academicYear,
+        note: cls.note || '',
+      },
+      { onConflict: 'id' }
+    );
+
+    if (updatedData) {
+      await client.from('app_backup').upsert(
+        {
+          id: 'main_school_data',
+          data: updatedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+  } catch (err) {
+    console.error('Lỗi khi upsert lớp lên Supabase:', err);
+  }
+}
+
+/**
+ * Thêm hoặc Cập nhật Nhiệm vụ trên Supabase
+ */
+export async function upsertTaskToSupabase(task: LearningTask, updatedData?: AppData): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    await client.from('tasks').upsert(
+      {
+        id: task.id,
+        title: task.title,
+        class_id: task.classId,
+        lesson_id: task.lessonId || null,
+        description: task.description,
+        due_date: task.dueDate,
+        priority: task.priority,
+        status: task.status,
+        completed_student_ids: task.completedStudentIds,
+      },
+      { onConflict: 'id' }
+    );
+
+    if (updatedData) {
+      await client.from('app_backup').upsert(
+        {
+          id: 'main_school_data',
+          data: updatedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+  } catch (err) {
+    console.error('Lỗi khi upsert nhiệm vụ lên Supabase:', err);
+  }
+}
+
+/**
+ * Thêm hoặc Cập nhật Điểm số trên Supabase
+ */
+export async function upsertGradeToSupabase(grade: GradeEntry, updatedData?: AppData): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    await client.from('grades').upsert(
+      {
+        id: grade.id,
+        student_id: grade.studentId,
+        class_id: grade.classId,
+        activity_title: grade.activityTitle,
+        lesson_id: grade.lessonId || null,
+        score: grade.score,
+        date: grade.date,
+        note: grade.note || '',
+      },
+      { onConflict: 'id' }
+    );
+
+    if (updatedData) {
+      await client.from('app_backup').upsert(
+        {
+          id: 'main_school_data',
+          data: updatedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+  } catch (err) {
+    console.error('Lỗi khi upsert điểm số lên Supabase:', err);
+  }
+}
+
+/**
+ * Thêm hoặc Cập nhật Nhận xét trên Supabase
+ */
+export async function upsertCommentToSupabase(comment: StudentComment, updatedData?: AppData): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    await client.from('comments').upsert(
+      {
+        id: comment.id,
+        student_id: comment.studentId,
+        class_id: comment.classId,
+        date: comment.date,
+        content: comment.content,
+        skill_category: comment.skillCategory,
+        note: comment.note || '',
+      },
+      { onConflict: 'id' }
+    );
+
+    if (updatedData) {
+      await client.from('app_backup').upsert(
+        {
+          id: 'main_school_data',
+          data: updatedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+  } catch (err) {
+    console.error('Lỗi khi upsert nhận xét lên Supabase:', err);
   }
 }
 
