@@ -9,6 +9,14 @@ import { AppData, ClassItem, Student, Lesson, LearningTask, GradeEntry, StudentC
 
 const CONFIG_KEY = 'tro_ly_supabase_config_v1';
 
+export function sanitizeSupabaseUrl(url: string): string {
+  if (!url) return '';
+  let clean = url.trim().replace(/\/+$/, '');
+  // Nếu url bị thừa /rest/v1 hoặc /rest/v1/ thì loại bỏ
+  clean = clean.replace(/\/rest\/v1\/?$/, '');
+  return clean;
+}
+
 // Lấy cấu hình mặc định từ file .env hoặc localStorage
 export function getSupabaseConfig(): { url: string; anonKey: string; autoSync: boolean } {
   try {
@@ -17,8 +25,8 @@ export function getSupabaseConfig(): { url: string; anonKey: string; autoSync: b
       const parsed = JSON.parse(raw);
       if (parsed.url && parsed.anonKey) {
         return {
-          url: parsed.url,
-          anonKey: parsed.anonKey,
+          url: sanitizeSupabaseUrl(parsed.url),
+          anonKey: parsed.anonKey.trim(),
           autoSync: parsed.autoSync ?? true,
         };
       }
@@ -28,17 +36,22 @@ export function getSupabaseConfig(): { url: string; anonKey: string; autoSync: b
   }
 
   return {
-    url: (import.meta.env.VITE_SUPABASE_URL as string) || 'https://hgeiudwywxajjhddmcsu.supabase.co',
-    anonKey: (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 'sb_publishable_H0EsTtg1e3HiNUgkghIWng_bvjOGPm0',
+    url: sanitizeSupabaseUrl(
+      (import.meta.env.VITE_SUPABASE_URL as string) || 'https://hgeiudwywxajjhddmcsu.supabase.co'
+    ),
+    anonKey: (
+      (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 'sb_publishable_H0EsTtg1e3HiNUgkghIWng_bvjOGPm0'
+    ).trim(),
     autoSync: true,
   };
 }
 
 export function saveSupabaseConfig(url: string, anonKey: string, autoSync: boolean = true): void {
   try {
+    const cleanUrl = sanitizeSupabaseUrl(url);
     localStorage.setItem(
       CONFIG_KEY,
-      JSON.stringify({ url: url.trim(), anonKey: anonKey.trim(), autoSync })
+      JSON.stringify({ url: cleanUrl, anonKey: anonKey.trim(), autoSync })
     );
     cachedClient = null; // Reset cached client to use new config
   } catch (e) {
@@ -204,6 +217,29 @@ export async function pushDataToSupabase(data: AppData): Promise<{
     }));
     const { error } = await client.from('lessons').upsert(lessonRows, { onConflict: 'id' });
     if (!error) updatedTables.push('lessons');
+  }
+
+  // Dọn dẹp các lớp học đã xóa trên giao diện nhưng vẫn còn trên Supabase
+  try {
+    const { data: remoteClasses } = await client.from('classes').select('id');
+    if (remoteClasses && remoteClasses.length > 0) {
+      const localClassIds = new Set(data.classes.map((c) => c.id));
+      const toDelete = remoteClasses
+        .filter((r: { id: string }) => !localClassIds.has(r.id))
+        .map((r: { id: string }) => r.id);
+      if (toDelete.length > 0) {
+        await Promise.allSettled([
+          client.from('classes').delete().in('id', toDelete),
+          client.from('students').delete().in('class_id', toDelete),
+          client.from('lessons').delete().in('class_id', toDelete),
+          client.from('tasks').delete().in('class_id', toDelete),
+          client.from('grades').delete().in('class_id', toDelete),
+          client.from('comments').delete().in('class_id', toDelete),
+        ]);
+      }
+    }
+  } catch (cleanErr) {
+    console.warn('Lỗi khi dọn dẹp lớp học đã xóa trên Supabase:', cleanErr);
   }
 
   // Dọn dẹp các bài học đã xóa trên giao diện nhưng vẫn còn trên Supabase

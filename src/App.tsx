@@ -87,20 +87,31 @@ export default function App() {
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
+  // Guards against pushing stale initial localStorage state before pulling from cloud
+  const isCloudSynced = React.useRef(false);
+  const isFirstRender = React.useRef(true);
+
   // Khi tải ứng dụng: tự động đồng bộ dữ liệu mới nhất từ Supabase nếu có
   useEffect(() => {
     let isMounted = true;
     const initDataFromCloud = async () => {
       try {
         const config = getSupabaseConfig();
-        if (!config.url || !config.anonKey) return;
+        if (!config.url || !config.anonKey) {
+          isCloudSynced.current = true;
+          return;
+        }
         const res = await pullDataFromSupabase();
         if (isMounted && res.success && res.data) {
           setData(res.data);
           saveAppData(res.data);
         }
-      } catch {
-        // Dùng localStorage bình thường nếu chưa tạo bảng hoặc offline
+      } catch (err) {
+        console.warn('Không thể nạp dữ liệu từ Cloud lúc khởi động:', err);
+      } finally {
+        if (isMounted) {
+          isCloudSynced.current = true;
+        }
       }
     };
     initDataFromCloud();
@@ -113,6 +124,16 @@ export default function App() {
   useEffect(() => {
     saveAppData(data);
 
+    // Bỏ qua lần render đầu tiên khi chưa đồng bộ từ cloud về
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    if (!isCloudSynced.current) {
+      return;
+    }
+
     // Tự động đồng bộ Supabase nếu giáo viên bật tùy chọn AutoSync
     const config = getSupabaseConfig();
     if (config.autoSync && config.url && config.anonKey) {
@@ -120,7 +141,7 @@ export default function App() {
         pushDataToSupabase(data).catch((err) => {
           console.warn('Auto-sync to Supabase failed silently:', err);
         });
-      }, 2000);
+      }, 1500);
       return () => clearTimeout(timer);
     }
   }, [data]);
